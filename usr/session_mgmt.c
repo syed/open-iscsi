@@ -171,6 +171,7 @@ int iscsi_login_portal(void *data, struct list_head *list, struct node_rec *rec)
 	 * Count the current number of sessions, and only create those
 	 * that are missing.
 	 */
+#if 0 //do not scan sysfs for each login
 	rc = iscsi_sysfs_for_each_session(rec, &session_count,
 					  iscsi_match_session_count, 0);
 	if (rc) {
@@ -186,6 +187,7 @@ int iscsi_login_portal(void *data, struct list_head *list, struct node_rec *rec)
 		rc = 0;
 		goto done;
 	}
+#endif 
 
 	/*
 	 * Ensure the record's 'multiple' flag is set so __iscsi_login_portal
