@@ -41,9 +41,12 @@ struct iscsi_session *session_find_by_sid(uint32_t sid)
 {
 	struct iscsi_transport *t;
 	struct iscsi_session *session;
+	struct hlist_head *head;
+	struct hlist_node *node;
 
 	list_for_each_entry(t, &transports, list) {
-		list_for_each_entry(session, &t->sessions, list) {
+		head = &t->sessions[hash_32(sid, ISCSI_TRANSPORT_SESSION_HASH_BITS)];
+		hlist_for_each_entry(session, node, head, hln) {
 			if (session->id == sid)
 				return session;
 		}

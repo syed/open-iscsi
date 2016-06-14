@@ -801,7 +801,7 @@ process_sendtargets_response(struct str_buffer *sendtargets,
 
 static void iscsi_free_session(struct iscsi_session *session)
 {
-	list_del_init(&session->list);
+	hlist_del_init(&session->hln);
 	free(session);
 }
 
@@ -827,7 +827,7 @@ iscsi_alloc_session(struct iscsi_sendtargets_config *config,
 		goto fail;
 	}
 
-	INIT_LIST_HEAD(&session->list);
+	INIT_HLIST_NODE(&session->hln);
 	/* initialize the session's leading connection */
 	session->conn[0].id = 0;
 	session->conn[0].socket_fd = -1;
@@ -878,7 +878,7 @@ iscsi_alloc_session(struct iscsi_sendtargets_config *config,
 	if (*rc)
 		goto fail;
 
-	list_add_tail(&session->list, &session->t->sessions);
+	hlist_add_head(&session->hln, &session->t->sessions[hash_32(session->id, ISCSI_TRANSPORT_SESSION_HASH_BITS)]);
 	return session;
 
 fail:
@@ -1157,6 +1157,8 @@ static int iscsi_create_leading_conn(struct iscsi_session *session)
 	log_debug(2, "%s discovery created session %u\n", __FUNCTION__,
 		  session->id);
 	session->isid[3] = session->id;
+	hlist_del_init(&session->hln);
+	hlist_add_head(&session->hln, &session->t->sessions[hash_32(session->id, ISCSI_TRANSPORT_SESSION_HASH_BITS)]);
 
 	log_debug(2, "%s discovery create conn\n", __FUNCTION__);
 	rc = ipc->create_conn(t->handle, session->id, conn->id, &conn->id);

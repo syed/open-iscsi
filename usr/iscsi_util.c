@@ -139,7 +139,7 @@ str_to_ipport(char *str, int *port, int *tpgt)
 	return ip;
 }
 
-#define ISCSI_MAX_FILES 16384
+#define ISCSI_MAX_FILES 131072
 
 int increase_max_files(void)
 {

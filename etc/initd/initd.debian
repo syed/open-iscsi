@@ -47,6 +47,16 @@ stoptargets() {
 	sync
 	$ADM -m node --logoutall=all
 	RETVAL=$?
+
+	# Begin SolidFire Fix
+	# stoptargets fails if there are no sessions.  When there are no sessions,
+	# iscsiadm returns ISCSI_ERR_NO_OBJS_FOUND which is 21.  Here we mask only
+	# that return value.  Any other error will still be an error.
+	if [ $RETVAL -eq 21 ]; then
+		RETVAL=0
+	fi
+	# End SolidFire Fix
+
 	log_end_msg $RETVAL
 }
 

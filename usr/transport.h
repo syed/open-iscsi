@@ -47,12 +47,24 @@ struct iscsi_transport {
 	uint64_t handle;
 	uint32_t caps;
 	char name[ISCSI_TRANSPORT_NAME_MAXLEN];
-	struct list_head sessions;
+#define ISCSI_TRANSPORT_SESSION_HASH_BITS 14
+	struct hlist_head sessions[1 << 14];
 	struct iscsi_transport_template *template;
 };
 
 extern int set_transport_template(struct iscsi_transport *t);
 extern int transport_load_kmod(char *transport_name);
 extern int transport_probe_for_offload(void);
+
+/** From include/linux/hash.h **/
+#define GOLDEN_RATIO_PRIME_32 0x9e370001UL
+static inline uint32_t hash_32(uint32_t val, unsigned int bits)
+{
+	/* On some cpus multiply is faster, on others gcc will do shifts */
+	uint32_t hash = val * GOLDEN_RATIO_PRIME_32;
+
+	/* High bits are more random, so use them. */
+	return hash >> (32 - bits);
+}
 
 #endif

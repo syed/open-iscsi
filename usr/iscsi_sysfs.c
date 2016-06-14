@@ -90,7 +90,7 @@ static int trans_filter(const struct dirent *dir)
 static int read_transports(void)
 {
 	struct dirent **namelist;
-	int i, n, found;
+	int i, j, n, found;
 	struct iscsi_transport *t;
 
 	log_debug(7, "in %s", __FUNCTION__);
@@ -120,7 +120,8 @@ static int read_transports(void)
 			log_debug(7, "Adding new transport %s",
 				  namelist[i]->d_name);
 
-			INIT_LIST_HEAD(&t->sessions);
+			for (j = 0; j < 1 << ISCSI_TRANSPORT_SESSION_HASH_BITS; ++j)
+				INIT_HLIST_HEAD(&t->sessions[j]);
 			INIT_LIST_HEAD(&t->list);
 			strlcpy(t->name, namelist[i]->d_name,
 				ISCSI_TRANSPORT_NAME_MAXLEN);

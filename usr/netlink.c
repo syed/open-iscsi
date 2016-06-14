@@ -1670,6 +1670,11 @@ static int ctldev_handle(void)
 static int
 ctldev_open(void)
 {
+	int rc;
+
+	/* Kernel doubles this, see socket(7) */
+	int bufsize = 2 * 1024 * 1024;
+
 	log_debug(7, "in %s", __FUNCTION__);
 
 	nlm_sendbuf = calloc(1, NLM_BUF_DEFAULT_MAX);
@@ -1700,6 +1705,13 @@ ctldev_open(void)
 	if (ctrl_fd < 0) {
 		log_error("can not create NETLINK_ISCSI socket");
 		goto free_setparam_buf;
+	}
+
+	rc = setsockopt(ctrl_fd, SOL_SOCKET, SO_RCVBUFFORCE, &bufsize, 
+			sizeof(bufsize));
+	if (rc) {
+		log_error("can not set socket buffer size, rc=%d", rc);
+		goto close_socket;
 	}
 
 	memset(&src_addr, 0, sizeof(src_addr));
