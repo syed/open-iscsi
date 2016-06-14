@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
+#include <grp.h>
 #include <sys/mman.h>
 #include <sys/utsname.h>
 #include <sys/types.h>
@@ -111,9 +112,7 @@ setup_rec_from_negotiated_values(node_rec_t *rec, struct session_info *info)
 	strlcpy(rec->name, info->targetname, TARGET_NAME_MAXLEN);
 	rec->conn[0].port = info->persistent_port;
 	strlcpy(rec->conn[0].address, info->persistent_address, NI_MAXHOST);
-	memcpy(&rec->iface, &info->iface, sizeof(struct iface_rec));
 	rec->tpgt = info->tpgt;
-	iface_copy(&rec->iface, &info->iface);
 
 	iscsi_sysfs_get_negotiated_session_conf(info->sid, &session_conf);
 	iscsi_sysfs_get_negotiated_conn_conf(info->sid, &conn_conf);
@@ -238,6 +237,7 @@ static int sync_session(void *data, struct session_info *info)
 		log_warning("Could not read data from db. Using default and "
 			    "currently negotiated values\n");
 		setup_rec_from_negotiated_values(&rec, info);
+		iface_copy(&rec.iface, &info->iface);
 	} else {
 		/*
 		 * we have a valid record and iface so lets merge
@@ -251,13 +251,12 @@ static int sync_session(void *data, struct session_info *info)
 		memset(&sysfsrec, 0, sizeof(node_rec_t));
 		setup_rec_from_negotiated_values(&sysfsrec, info);
 		/*
-		 * target, portal and iface name values have to be the same
+		 * target, portal and iface values have to be the same
 		 * or we would not have found the record, so just copy
-		 * CHAP and iface settings.
+		 * CHAP settings.
 		 */
 		memcpy(&rec.session.auth, &sysfsrec.session.auth,
 		      sizeof(struct iscsi_auth_config));
-		memcpy(&rec.iface, &info->iface, sizeof(rec.iface));
 	}
 
 	/* multiple drivers could be connected to the same portal */
@@ -477,11 +476,25 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (uid && setuid(uid) < 0)
-		perror("setuid\n");
+	if (gid && setgid(gid) < 0) {
+		log_error("Unable to setgid to %d\n", gid);
+		log_close(log_pid);
+		exit(ISCSI_ERR);
+	}
 
-	if (gid && setgid(gid) < 0)
-		perror("setgid\n");
+	if ((geteuid() == 0) && (getgroups(0, NULL))) {
+		if (setgroups(0, NULL) != 0) {
+			log_error("Unable to drop supplementary group ids\n");
+			log_close(log_pid);
+			exit(ISCSI_ERR);
+		}
+	}
+
+	if (uid && setuid(uid) < 0) {
+		log_error("Unable to setuid to %d\n", uid);
+		log_close(log_pid);
+		exit(ISCSI_ERR);
+	}
 
 	memset(&daemon_config, 0, sizeof (daemon_config));
 	daemon_config.pid_file = pid_file;
@@ -511,7 +524,8 @@ int main(int argc, char *argv[])
 	if (pid == 0) {
 		int nr_found = 0;
 		/* child */
-		iscsi_sysfs_for_each_session(NULL, &nr_found, sync_session);
+		/* TODO - test with async support enabled */
+		iscsi_sysfs_for_each_session(NULL, &nr_found, sync_session, 0);
 		exit(0);
 	} else if (pid < 0) {
 		log_error("Fork failed error %d: existing sessions"

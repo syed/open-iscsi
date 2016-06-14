@@ -20,7 +20,9 @@
 #ifndef ISCSI_IFACE_H
 #define ISCSI_IFACE_H
 
-#define IFACE_CONFIG_DIR	ISCSI_CONFIG_ROOT"ifaces"
+#include "idbm.h"
+
+#define IFACE_CONFIG_DIR	ISCSIVAR"ifaces"
 
 struct iface_rec;
 struct list_head;

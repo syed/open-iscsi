@@ -64,20 +64,32 @@ void session_info_free_list(struct list_head *list)
 	}
 }
 
+static char *get_iscsi_node_type(struct session_info *info)
+{
+	int pid = iscsi_sysfs_session_user_created(info->sid);
+
+	if (!pid)
+		return "flash";
+	else
+		return "non-flash";
+}
+
 static int session_info_print_flat(void *data, struct session_info *info)
 {
 	struct iscsi_transport *t = iscsi_sysfs_get_transport_by_sid(info->sid);
 
 	if (strchr(info->persistent_address, '.'))
-		printf("%s: [%d] %s:%d,%d %s\n",
+		printf("%s: [%d] %s:%d,%d %s (%s)\n",
 			t ? t->name : UNKNOWN_VALUE,
 			info->sid, info->persistent_address,
-			info->persistent_port, info->tpgt, info->targetname);
+			info->persistent_port, info->tpgt, info->targetname,
+			get_iscsi_node_type(info));
 	else
-		printf("%s: [%d] [%s]:%d,%d %s\n",
+		printf("%s: [%d] [%s]:%d,%d %s (%s)\n",
 			t ? t->name : UNKNOWN_VALUE,
 			info->sid, info->persistent_address,
-			info->persistent_port, info->tpgt, info->targetname);
+			info->persistent_port, info->tpgt, info->targetname,
+			get_iscsi_node_type(info));
 	return 0;
 }
 
@@ -230,7 +242,8 @@ void session_info_print_tree(struct list_head *list, char *prefix,
 
 	list_for_each_entry(curr, list, list) {
 		if (!prev || strcmp(prev->targetname, curr->targetname)) {
-			printf("%sTarget: %s\n", prefix, curr->targetname);
+			printf("%sTarget: %s (%s)\n", prefix, curr->targetname,
+				get_iscsi_node_type(curr));
 			prev = NULL;
 		}
 
@@ -278,6 +291,7 @@ void session_info_print_tree(struct list_head *list, char *prefix,
 			printf("%s\t\tSID: %d\n", prefix, curr->sid);
 			print_iscsi_state(curr->sid, prefix);
 		}
+
 		if (flags & SESSION_INFO_ISCSI_TIM) {
 			printf("%s\t\t*********\n", prefix);
 			printf("%s\t\tTimeouts:\n", prefix);
@@ -368,7 +382,7 @@ int session_info_print(int info_level, struct session_info *info, int do_show)
 			num_found = 1;
 		} else
 			err = iscsi_sysfs_for_each_session(info, &num_found,
-						   session_info_print_flat);
+						   session_info_print_flat, 0);
 		break;
 	case 3:
 		version = iscsi_sysfs_get_iscsi_kernel_version();
@@ -403,7 +417,7 @@ int session_info_print(int info_level, struct session_info *info, int do_show)
 		link_info.match_fn = NULL;
 
 		err = iscsi_sysfs_for_each_session(&link_info, &num_found,
-						   session_info_create_list);
+						   session_info_create_list, 0);
 		if (err || !num_found)
 			break;
 

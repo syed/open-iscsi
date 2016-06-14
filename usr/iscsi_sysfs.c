@@ -24,11 +24,13 @@
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include "log.h"
 #include "initiator.h"
 #include "transport.h"
 #include "idbm.h"
+#include "idbm_fields.h"
 #include "version.h"
 #include "iscsi_sysfs.h"
 #include "sysdeps.h"
@@ -37,6 +39,7 @@
 #include "session_info.h"
 #include "host.h"
 #include "iscsi_err.h"
+#include "flashnode.h"
 
 /*
  * TODO: remove the _DIR defines and search for subsys dirs like
@@ -45,18 +48,22 @@
 #define ISCSI_TRANSPORT_DIR	"/sys/class/iscsi_transport"
 #define ISCSI_SESSION_DIR	"/sys/class/iscsi_session"
 #define ISCSI_HOST_DIR		"/sys/class/iscsi_host"
+#define ISCSI_FLASHNODE_DIR	"/sys/bus/iscsi_flashnode/devices"
 
 #define ISCSI_SESSION_SUBSYS		"iscsi_session"
 #define ISCSI_CONN_SUBSYS		"iscsi_connection"
 #define ISCSI_HOST_SUBSYS		"iscsi_host"
 #define ISCSI_TRANSPORT_SUBSYS		"iscsi_transport"
 #define ISCSI_IFACE_SUBSYS		"iscsi_iface"
+#define ISCSI_FLASHNODE_SUBSYS		"iscsi_flashnode"
 #define SCSI_HOST_SUBSYS		"scsi_host"
 #define SCSI_SUBSYS			"scsi"
 
 #define ISCSI_SESSION_ID		"session%d"
 #define ISCSI_CONN_ID			"connection%d:0"
 #define ISCSI_HOST_ID			"host%d"
+#define ISCSI_FLASHNODE_SESS		"flashnode_sess-%d:%d"
+#define ISCSI_FLASHNODE_CONN		"flashnode_conn-%d:%d:0"
 
 /*
  * TODO: make this into a real API and check inputs better and add doc.
@@ -440,6 +447,271 @@ uint32_t iscsi_sysfs_get_host_no_from_hwinfo(struct iface_rec *iface, int *rc)
 }
 
 /*
+ * Read the flash node attributes based on host and flash node index.
+ */
+int iscsi_sysfs_get_flashnode_info(struct flashnode_rec *fnode,
+				   uint32_t host_no,
+				   uint32_t flashnode_idx)
+{
+	char sess_id[NAME_SIZE] = {'\0'};
+	char conn_id[NAME_SIZE] = {'\0'};
+	char fnode_path[PATH_SIZE] = {'\0'};
+	struct iscsi_transport *t;
+	int ret = 0;
+
+	t = iscsi_sysfs_get_transport_by_hba(host_no);
+	if (!t)
+		log_debug(7, "could not get transport name for host%d",
+			  host_no);
+	else
+		strncpy(fnode->transport_name, t->name,
+			ISCSI_TRANSPORT_NAME_MAXLEN);
+
+	snprintf(sess_id, sizeof(sess_id), ISCSI_FLASHNODE_SESS, host_no,
+		 flashnode_idx);
+
+	snprintf(fnode_path, sizeof(fnode_path), ISCSI_FLASHNODE_DIR"/%s",
+		 sess_id);
+	if (access(fnode_path, F_OK) != 0)
+		return errno;
+
+	snprintf(conn_id, sizeof(conn_id), ISCSI_FLASHNODE_CONN, host_no,
+		 flashnode_idx);
+
+	snprintf(fnode_path, sizeof(fnode_path), ISCSI_FLASHNODE_DIR"/%s",
+		 conn_id);
+	if (access(fnode_path, F_OK) != 0)
+		return errno;
+
+
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "is_fw_assigned_ipv6",
+			&((fnode->conn[0]).is_fw_assigned_ipv6));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS, "portal_type",
+		      (fnode->sess).portal_type,
+		      sizeof((fnode->sess).portal_type));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "auto_snd_tgt_disable",
+			&((fnode->sess).auto_snd_tgt_disable));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "discovery_session",
+			&((fnode->sess).discovery_session));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "entry_enable",
+			&((fnode->sess).entry_enable));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "header_digest",
+			&((fnode->conn[0]).header_digest_en));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "data_digest",
+			&((fnode->conn[0]).data_digest_en));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "immediate_data",
+			&((fnode->sess).immediate_data));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "initial_r2t",
+			&((fnode->sess).initial_r2t));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "data_seq_in_order",
+			&((fnode->sess).data_seq_in_order));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "data_pdu_in_order",
+			&((fnode->sess).data_pdu_in_order));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "chap_auth",
+			&((fnode->sess).chap_auth_en));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "snack_req",
+			&((fnode->conn[0]).snack_req_en));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "discovery_logout",
+			&((fnode->sess).discovery_logout_en));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "bidi_chap",
+			&((fnode->sess).bidi_chap_en));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS,
+			"discovery_auth_optional",
+			&((fnode->sess).discovery_auth_optional));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "erl",
+			&((fnode->sess).erl));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "tcp_timestamp_stat",
+			&((fnode->conn[0]).tcp_timestamp_stat));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "tcp_nagle_disable",
+			&((fnode->conn[0]).tcp_nagle_disable));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "tcp_wsf_disable",
+			&((fnode->conn[0]).tcp_wsf_disable));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "tcp_timer_scale",
+			&((fnode->conn[0]).tcp_timer_scale));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "tcp_timestamp_enable",
+			&((fnode->conn[0]).tcp_timestamp_en));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "fragment_disable",
+			&((fnode->conn[0]).fragment_disable));
+	sysfs_get_uint(conn_id, ISCSI_FLASHNODE_SUBSYS, "max_recv_dlength",
+		       &((fnode->conn[0]).max_recv_dlength));
+	sysfs_get_uint(conn_id, ISCSI_FLASHNODE_SUBSYS, "max_xmit_dlength",
+		       &((fnode->conn[0]).max_xmit_dlength));
+	sysfs_get_uint(sess_id, ISCSI_FLASHNODE_SUBSYS, "first_burst_len",
+		       &((fnode->sess).first_burst_len));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS, "def_time2wait",
+			 &((fnode->sess).def_time2wait));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS, "def_time2retain",
+			 &((fnode->sess).def_time2retain));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS, "max_outstanding_r2t",
+			 &((fnode->sess).max_outstanding_r2t));
+	sysfs_get_uint16(conn_id, ISCSI_FLASHNODE_SUBSYS, "keepalive_tmo",
+			 &((fnode->conn[0]).keepalive_tmo));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS, "isid",
+		      (fnode->sess).isid, sizeof((fnode->sess).isid));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS, "tsid",
+			 &((fnode->sess).tsid));
+	sysfs_get_uint16(conn_id, ISCSI_FLASHNODE_SUBSYS, "port",
+			 &((fnode->conn[0]).port));
+	sysfs_get_uint(sess_id, ISCSI_FLASHNODE_SUBSYS, "max_burst_len",
+		       &((fnode->sess).max_burst_len));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS, "def_taskmgmt_tmo",
+			 &((fnode->sess).def_taskmgmt_tmo));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS, "targetalias",
+		      (fnode->sess).targetalias,
+		      sizeof((fnode->sess).targetalias));
+	sysfs_get_str(conn_id, ISCSI_FLASHNODE_SUBSYS, "ipaddress",
+		      (fnode->conn[0]).ipaddress,
+		      sizeof((fnode->conn[0]).ipaddress));
+	sysfs_get_str(conn_id, ISCSI_FLASHNODE_SUBSYS, "redirect_ipaddr",
+		      (fnode->conn[0]).redirect_ipaddr,
+		      sizeof((fnode->conn[0]).redirect_ipaddr));
+	sysfs_get_uint(conn_id, ISCSI_FLASHNODE_SUBSYS, "max_segment_size",
+		       &((fnode->conn[0]).max_segment_size));
+	sysfs_get_uint16(conn_id, ISCSI_FLASHNODE_SUBSYS, "local_port",
+			 &((fnode->conn[0]).local_port));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "ipv4_tos",
+			&((fnode->conn[0]).ipv4_tos));
+	sysfs_get_uint8(conn_id, ISCSI_FLASHNODE_SUBSYS, "ipv6_traffic_class",
+			&((fnode->conn[0]).ipv6_traffic_class));
+	sysfs_get_uint16(conn_id, ISCSI_FLASHNODE_SUBSYS, "ipv6_flow_label",
+			 &((fnode->conn[0]).ipv6_flow_lbl));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS, "targetname",
+		      (fnode->sess).targetname,
+		      sizeof((fnode->sess).targetname));
+	sysfs_get_str(conn_id, ISCSI_FLASHNODE_SUBSYS, "link_local_ipv6",
+		      (fnode->conn[0]).link_local_ipv6,
+		      sizeof((fnode->conn[0]).link_local_ipv6));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS,
+			 "discovery_parent_idx",
+			 &((fnode->sess).discovery_parent_idx));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS,
+		      "discovery_parent_type",
+		      (fnode->sess).discovery_parent_type,
+		      sizeof((fnode->sess).discovery_parent_type));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS, "tpgt",
+			 &((fnode->sess).tpgt));
+	sysfs_get_uint(conn_id, ISCSI_FLASHNODE_SUBSYS, "tcp_xmit_wsf",
+		       &((fnode->conn[0]).tcp_xmit_wsf));
+	sysfs_get_uint(conn_id, ISCSI_FLASHNODE_SUBSYS, "tcp_recv_wsf",
+		       &((fnode->conn[0]).tcp_recv_wsf));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS, "chap_out_idx",
+			 &((fnode->sess).chap_out_idx));
+	sysfs_get_uint16(sess_id, ISCSI_FLASHNODE_SUBSYS, "chap_in_idx",
+			 &((fnode->sess).chap_in_idx));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS, "username",
+		      (fnode->sess).username, sizeof((fnode->sess).username));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS, "username_in",
+		      (fnode->sess).username_in,
+		      sizeof((fnode->sess).username_in));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS, "password",
+		      (fnode->sess).password, sizeof((fnode->sess).password));
+	sysfs_get_str(sess_id, ISCSI_FLASHNODE_SUBSYS, "password_in",
+		      (fnode->sess).password_in,
+		      sizeof((fnode->sess).password_in));
+	sysfs_get_uint(conn_id, ISCSI_FLASHNODE_SUBSYS, "statsn",
+		       &((fnode->conn[0]).stat_sn));
+	sysfs_get_uint(conn_id, ISCSI_FLASHNODE_SUBSYS, "exp_statsn",
+		       &((fnode->conn[0]).exp_stat_sn));
+	sysfs_get_uint8(sess_id, ISCSI_FLASHNODE_SUBSYS, "is_boot_target",
+			&((fnode->sess).is_boot_target));
+	return ret;
+}
+
+/*
+ * For each flash node of the given host, perform operation specified in fn.
+ */
+int iscsi_sysfs_for_each_flashnode(void *data, uint32_t host_no, int *nr_found,
+				   iscsi_sysfs_flashnode_op_fn *fn)
+{
+	struct dirent **namelist;
+	int rc = 0, i, n;
+	struct flashnode_rec *fnode;
+	uint32_t flashnode_idx;
+	uint32_t hostno;
+
+	fnode = malloc(sizeof(*fnode));
+	if (!fnode)
+		return ISCSI_ERR_NOMEM;
+
+	n = scandir(ISCSI_FLASHNODE_DIR, &namelist, trans_filter, alphasort);
+	if (n <= 0)
+		goto free_fnode;
+
+	for (i = 0; i < n; i++) {
+		memset(fnode, 0, sizeof(*fnode));
+
+		if (!strncmp(namelist[i]->d_name, "flashnode_conn",
+			     strlen("flashnode_conn")))
+			continue;
+
+		if (sscanf(namelist[i]->d_name, ISCSI_FLASHNODE_SESS,
+			   &hostno, &flashnode_idx) != 2) {
+			log_error("Invalid iscsi target dir: %s",
+				  namelist[i]->d_name);
+			break;
+		}
+
+		if (host_no != hostno)
+			continue;
+
+		rc = iscsi_sysfs_get_flashnode_info(fnode, host_no,
+						    flashnode_idx);
+		if (rc)
+			break;
+
+		rc = fn(data, fnode, host_no, flashnode_idx);
+		if (rc != 0)
+			break;
+		(*nr_found)++;
+	}
+
+	for (i = 0; i < n; i++)
+		free(namelist[i]);
+	free(namelist);
+
+free_fnode:
+	free(fnode);
+	return rc;
+}
+
+static int iscsi_sysfs_read_boot(struct iface_rec *iface, char *session)
+{
+	char boot_root[BOOT_NAME_MAXLEN], boot_nic[BOOT_NAME_MAXLEN];
+	char boot_name[BOOT_NAME_MAXLEN], boot_content[BOOT_NAME_MAXLEN];
+
+	/* Extract boot info */
+	strlcpy(boot_name, "boot_target", sizeof(boot_name));
+	if (sysfs_get_str(session, ISCSI_SESSION_SUBSYS, boot_name,
+			  boot_content, BOOT_NAME_MAXLEN))
+		return -1;
+	strlcpy(boot_name, "boot_nic", sizeof(boot_name));
+	if (sysfs_get_str(session, ISCSI_SESSION_SUBSYS, boot_name, boot_nic,
+			  BOOT_NAME_MAXLEN))
+		return -1;
+	strlcpy(boot_name, "boot_root", sizeof(boot_name));
+	if (sysfs_get_str(session, ISCSI_SESSION_SUBSYS, boot_name, boot_root,
+			  BOOT_NAME_MAXLEN))
+		return -1;
+
+	/* If all boot_root/boot_target/boot_nic exist, then extract the
+	   info from the boot nic */
+	if (sysfs_get_str(boot_nic, boot_root, "vlan", boot_content,
+			  BOOT_NAME_MAXLEN))
+		log_debug(5, "could not read %s/%s/vlan", boot_root, boot_nic);
+	else
+		iface->vlan_id = atoi(boot_content);
+
+	if (sysfs_get_str(boot_nic, boot_root, "subnet-mask",
+			  iface->subnet_mask, NI_MAXHOST))
+		log_debug(5, "could not read %s/%s/subnet", boot_root,
+			  boot_nic);
+
+	log_debug(5, "sysfs read boot returns %s/%s/ vlan = %d subnet = %s",
+		  boot_root, boot_nic, iface->vlan_id, iface->subnet_mask);
+	return 0;
+}
+
+/*
  * Read in iface settings based on host and session values. If
  * session is not passed in, then the ifacename will not be set. And
  * if the session is not passed in then iname will only be set for
@@ -567,6 +839,9 @@ static int iscsi_sysfs_read_iface(struct iface_rec *iface, int host_no,
 		}
 	}
 
+	if (session && t->template->use_boot_info)
+		iscsi_sysfs_read_boot(iface, session);
+
 	if (!iface_kern_id)
 		goto done;
 
@@ -581,6 +856,71 @@ static int iscsi_sysfs_read_iface(struct iface_rec *iface, int host_no,
 
 		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "subnet",
 			      iface->subnet_mask, sizeof(iface->subnet_mask));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "dhcp_alt_client_id_en",
+			      iface->dhcp_alt_client_id_state,
+			      sizeof(iface->dhcp_alt_client_id_state));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "dhcp_alt_client_id",
+			      iface->dhcp_alt_client_id,
+			      sizeof(iface->dhcp_alt_client_id));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "dhcp_dns_address_en",
+			      iface->dhcp_dns, sizeof(iface->dhcp_dns));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "dhcp_learn_iqn_en",
+			      iface->dhcp_learn_iqn,
+			      sizeof(iface->dhcp_learn_iqn));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "dhcp_req_vendor_id_en",
+			      iface->dhcp_req_vendor_id_state,
+			      sizeof(iface->dhcp_req_vendor_id_state));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "dhcp_use_vendor_id_en",
+			      iface->dhcp_vendor_id_state,
+			      sizeof(iface->dhcp_vendor_id_state));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "dhcp_vendor_id",
+			      iface->dhcp_vendor_id,
+			      sizeof(iface->dhcp_vendor_id));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "dhcp_slp_da_info_en",
+			      iface->dhcp_slp_da, sizeof(iface->dhcp_slp_da));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "fragment_disable",
+			      iface->fragmentation,
+			      sizeof(iface->fragmentation));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "grat_arp_en",
+			      iface->gratuitous_arp,
+			      sizeof(iface->gratuitous_arp));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "incoming_forwarding_en",
+			      iface->incoming_forwarding,
+			      sizeof(iface->incoming_forwarding));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "tos_en",
+			      iface->tos_state, sizeof(iface->tos_state));
+
+		if (sysfs_get_uint8(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				    "tos", &iface->tos))
+			iface->tos = 0;
+
+		if (sysfs_get_uint8(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				    "ttl", &iface->ttl))
+			iface->ttl = 0;
 	} else {
 		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
 			      "ipaddr_autocfg",
@@ -597,6 +937,53 @@ static int iscsi_sysfs_read_iface(struct iface_rec *iface, int host_no,
 		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "router_addr",
 			      iface->ipv6_router,
 			      sizeof(iface->ipv6_router));
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "router_state",
+			      iface->router_autocfg,
+			      sizeof(iface->router_autocfg));
+
+		if (sysfs_get_uint8(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				    "dup_addr_detect_cnt",
+				    &iface->dup_addr_detect_cnt))
+			iface->dup_addr_detect_cnt = 0;
+
+		if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				   "flow_label", &iface->flow_label))
+			iface->flow_label = 0;
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			      "grat_neighbor_adv_en",
+			      iface->gratuitous_neighbor_adv,
+			      sizeof(iface->gratuitous_neighbor_adv));
+
+		if (sysfs_get_uint8(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				    "hop_limit", &iface->hop_limit))
+			iface->hop_limit = 0;
+
+		sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "mld_en",
+			      iface->mld, sizeof(iface->mld));
+
+		if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				   "nd_reachable_tmo",
+				   &iface->nd_reachable_tmo))
+			iface->nd_reachable_tmo = 0;
+
+		if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				   "nd_rexmit_time", &iface->nd_rexmit_time))
+			iface->nd_rexmit_time = 0;
+
+		if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				   "nd_stale_tmo", &iface->nd_stale_tmo))
+			iface->nd_stale_tmo = 0;
+
+		if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				   "router_adv_link_mtu",
+				   &iface->router_adv_link_mtu))
+			iface->router_adv_link_mtu = 0;
+
+		if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+				   "traffic_class", &iface->traffic_class))
+			iface->traffic_class = 0;
 	}
 
 	if (sysfs_get_uint16(iface_kern_id, ISCSI_IFACE_SUBSYS, "port",
@@ -612,6 +999,94 @@ static int iscsi_sysfs_read_iface(struct iface_rec *iface, int host_no,
 	if (sysfs_get_uint8(iface_kern_id, ISCSI_IFACE_SUBSYS, "vlan_priority",
 			    &iface->vlan_priority))
 		iface->vlan_priority = UINT8_MAX;
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "vlan_enabled",
+		      iface->vlan_state, sizeof(iface->vlan_state));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "enabled",
+		      iface->state, sizeof(iface->state));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "delayed_ack_en",
+		      iface->delayed_ack, sizeof(iface->delayed_ack));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "tcp_nagle_disable",
+		      iface->nagle, sizeof(iface->nagle));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "tcp_wsf_disable",
+		      iface->tcp_wsf_state, sizeof(iface->tcp_wsf_state));
+
+	if (sysfs_get_uint8(iface_kern_id, ISCSI_IFACE_SUBSYS, "tcp_wsf",
+			    &iface->tcp_wsf))
+		iface->tcp_wsf = 0;
+
+	if (sysfs_get_uint8(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			    "tcp_timer_scale", &iface->tcp_timer_scale))
+		iface->tcp_timer_scale = 0;
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "tcp_timestamp_en",
+		      iface->tcp_timestamp, sizeof(iface->tcp_timestamp));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "redirect_en",
+		      iface->redirect, sizeof(iface->redirect));
+
+	if (sysfs_get_uint16(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			     "def_taskmgmt_tmo", &iface->def_task_mgmt_tmo))
+		iface->def_task_mgmt_tmo = 0;
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "header_digest",
+		      iface->header_digest, sizeof(iface->header_digest));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "data_digest",
+		      iface->data_digest, sizeof(iface->data_digest));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "immediate_data",
+		      iface->immediate_data, sizeof(iface->immediate_data));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "initial_r2t",
+		      iface->initial_r2t, sizeof(iface->initial_r2t));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "data_seq_in_order",
+		      iface->data_seq_inorder, sizeof(iface->data_seq_inorder));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "data_pdu_in_order",
+		      iface->data_pdu_inorder, sizeof(iface->data_pdu_inorder));
+
+	if (sysfs_get_uint8(iface_kern_id, ISCSI_IFACE_SUBSYS, "erl",
+			    &iface->erl))
+		iface->erl = 0;
+
+	if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			   "max_recv_dlength", &iface->max_recv_dlength))
+		iface->max_recv_dlength = 0;
+
+	if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			   "first_burst_len", &iface->first_burst_len))
+		iface->first_burst_len = 0;
+
+	if (sysfs_get_uint16(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			     "max_outstanding_r2t", &iface->max_out_r2t))
+		iface->max_out_r2t = 0;
+
+	if (sysfs_get_uint(iface_kern_id, ISCSI_IFACE_SUBSYS,
+			   "max_burst_len", &iface->max_burst_len))
+		iface->max_burst_len = 0;
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "chap_auth",
+		      iface->chap_auth, sizeof(iface->chap_auth));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "bidi_chap",
+		      iface->bidi_chap, sizeof(iface->bidi_chap));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "strict_login_comp_en",
+		      iface->strict_login_comp,
+		      sizeof(iface->strict_login_comp));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS,
+		      "discovery_auth_optional",
+		      iface->discovery_auth, sizeof(iface->discovery_auth));
+
+	sysfs_get_str(iface_kern_id, ISCSI_IFACE_SUBSYS, "discovery_logout",
+		      iface->discovery_logout, sizeof(iface->discovery_logout));
 
 	if (sscanf(iface_kern_id, "ipv%d-iface-%u-%u", &iface_type,
 		   &tmp_host_no, &iface_num) == 3)
@@ -740,7 +1215,7 @@ int iscsi_sysfs_session_has_leadconn(uint32_t sid)
  * /sys/devices/platform/hostH/sessionS/targetH:B:I
  * /sys/devices/platform/hostH/sessionS
  *
- * return the sid S. If just the sid is passed in it will be covnerted
+ * return the sid S. If just the sid is passed in it will be converted
  * to a int.
  */
 int iscsi_sysfs_get_sid_from_path(char *session)
@@ -748,15 +1223,16 @@ int iscsi_sysfs_get_sid_from_path(char *session)
 	struct sysfs_device *dev_parent, *dev;
 	struct stat statb;
 	char devpath[PATH_SIZE];
+	char *end;
+	int sid;
+
+	sid = strtol(session, &end, 10);
+	if (sid > 0 && *session != '\0' && *end == '\0')
+		return sid;
 
 	if (lstat(session, &statb)) {
-		log_debug(1, "Could not stat %s failed with %d",
-			  session, errno);
-		if (index(session, '/')) {
-			log_error("%s is an invalid session path\n", session);
-			exit(1);
-		}
-		return atoi(session);
+		log_error("%s is an invalid session ID or path\n", session);
+		exit(1);
 	}
 
 	if (!S_ISDIR(statb.st_mode) && !S_ISLNK(statb.st_mode)) {
@@ -932,11 +1408,13 @@ int iscsi_sysfs_get_sessioninfo_by_id(struct session_info *info, char *session)
 }
 
 int iscsi_sysfs_for_each_session(void *data, int *nr_found,
-				 iscsi_sysfs_session_op_fn *fn)
+				 iscsi_sysfs_session_op_fn *fn,
+				 int in_parallel)
 {
 	struct dirent **namelist;
-	int rc = 0, n, i;
+	int rc = 0, n, i, chldrc = 0;
 	struct session_info *info;
+	pid_t pid = 0;
 
 	info = calloc(1, sizeof(*info));
 	if (!info)
@@ -958,14 +1436,52 @@ int iscsi_sysfs_for_each_session(void *data, int *nr_found,
 			continue;
 		}
 
-		rc = fn(data, info);
-		if (rc > 0)
-			break;
-		else if (rc == 0)
-			(*nr_found)++;
-		else
-			/* if less than zero it means it was not a match */
-			rc = 0;
+		if (in_parallel) {
+			pid = fork();
+		}
+		if (pid == 0) {
+			rc = fn(data, info);
+			if (in_parallel) {
+				exit(rc);
+			} else {
+				if (rc > 0) {
+					break;
+				} else if (rc == 0) {
+					(*nr_found)++;
+				} else {
+					/* if less than zero it means it was not a match */
+					rc = 0;
+				}
+			}
+		} else if (pid < 0) {
+			log_error("could not fork() for session %s, err %d",
+				   namelist[i]->d_name, errno);
+		}
+	}
+
+	if (in_parallel) {
+		while (1) {
+			if (wait(&chldrc) < 0) {
+				/*
+				 * ECHILD means no more children which is
+				 * expected to happen sooner or later.
+				 */
+				if (errno != ECHILD) {
+					rc = errno;
+				}
+				break;
+			}
+
+			if ((chldrc > 0) && (rc == 0)) {
+				/*
+				 * The non-parallel code path returns the first
+				 * error so this keeps the same semantics.
+				 */
+				rc = chldrc;
+			} else if (chldrc == 0) {
+				(*nr_found)++;
+			}
+		}
 	}
 
 	for (i = 0; i < n; i++)

@@ -31,7 +31,7 @@ endif
 OPTFLAGS ?= -O2 -g
 WARNFLAGS ?= -Wall -Wstrict-prototypes
 CFLAGS += $(OPTFLAGS) $(WARNFLAGS) -I../include -I. -I../utils/open-isns \
-				-D$(OSNAME) $(IPC_CFLAGS)
+				-D$(OSNAME) $(IPC_CFLAGS) -DISNS_ENABLE
 PROGRAMS = iscsid iscsiadm iscsistart
 
 # libc compat files
@@ -40,7 +40,8 @@ SYSDEPS_SRCS = $(wildcard ../utils/sysdeps/*.o)
 ISCSI_LIB_SRCS = iscsi_util.o io.o auth.o iscsi_timer.o login.o log.o md5.o \
 	sha1.o iface.o idbm.o sysfs.o host.o session_info.o iscsi_sysfs.o \
 	iscsi_net_util.o iscsid_req.o transport.o iser.o cxgbi.o be2iscsi.o \
-	initiator_common.o iscsi_err.o $(IPC_OBJ)  $(SYSDEPS_SRCS)
+	initiator_common.o iscsi_err.o flashnode.o uip_mgmt_ipc.o \
+	$(IPC_OBJ)  $(SYSDEPS_SRCS)
 # core initiator files
 INITIATOR_SRCS = initiator.o scsi.o actor.o event_poll.o mgmt_ipc.o kern_err_table.o
 
@@ -61,7 +62,7 @@ iscsiadm: $(ISCSI_LIB_SRCS) $(DISCOVERY_SRCS) iscsiadm.o session_mgmt.o
 
 iscsistart: $(ISCSI_LIB_SRCS) $(INITIATOR_SRCS) $(FW_BOOT_SRCS) \
 		iscsistart.o statics.o
-	$(CC) $(CFLAGS) -static $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@
 clean:
 	rm -f *.o $(PROGRAMS) .depend $(LIBSYS)
 

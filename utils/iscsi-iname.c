@@ -73,7 +73,7 @@ main(int argc, char *argv[])
 			exit(0);
 		}
 	} else {
-		prefix = "iqn.2005-03.org.open-iscsi";
+		prefix = "iqn.1994-05.com.redhat";
 	}
 
 	/* try to feed some entropy from the pool to MD5 in order to get

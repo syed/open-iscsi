@@ -143,8 +143,28 @@ struct iscsi_ipc {
 			 uint16_t chap_tbl_idx, uint32_t num_entries,
 			 char *chap_buf, uint32_t *valid_chap_entries);
 
+	int (*set_chap) (uint64_t transport_handle, uint32_t host_no,
+			 struct iovec *iovs, uint32_t param_count);
+
 	int (*delete_chap) (uint64_t transport_handle, uint32_t host_no,
 			    uint16_t chap_tbl_idx);
+	int (*set_flash_node_params) (uint64_t transport_handle,
+				      uint32_t host_no, uint32_t flashnode_idx,
+				      struct iovec *iovs, uint32_t param_count);
+	int (*new_flash_node) (uint64_t transport_handle, uint32_t host_no,
+			       void *value, uint32_t *flashnode_idx);
+	int (*del_flash_node) (uint64_t transport_handle, uint32_t host_no,
+			       uint32_t flashnode_idx);
+	int (*login_flash_node) (uint64_t transport_handle, uint32_t host_no,
+				uint32_t flashnode_idx);
+	int (*logout_flash_node) (uint64_t transport_handle, uint32_t host_no,
+				  uint32_t flashnode_idx);
+	int (*logout_flash_node_sid) (uint64_t transport_handle,
+				      uint32_t host_no, uint32_t sid);
+	int (*get_host_stats) (uint64_t transport_handle, uint32_t host_no,
+			 char *host_stats);
 };
+
+struct iscsi_ipc *ipc;
 
 #endif /* ISCSI_IPC_H */

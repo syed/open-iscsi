@@ -27,13 +27,15 @@
 #include "initiator.h"
 #include "config.h"
 #include "list.h"
+#include "flashnode.h"
 
-#define NODE_CONFIG_DIR		ISCSI_CONFIG_ROOT"nodes"
-#define SLP_CONFIG_DIR		ISCSI_CONFIG_ROOT"slp"
-#define ISNS_CONFIG_DIR		ISCSI_CONFIG_ROOT"isns"
-#define STATIC_CONFIG_DIR	ISCSI_CONFIG_ROOT"static"
-#define FW_CONFIG_DIR		ISCSI_CONFIG_ROOT"fw"
-#define ST_CONFIG_DIR		ISCSI_CONFIG_ROOT"send_targets"
+#define ISCSIVAR		"/var/lib/iscsi/"
+#define NODE_CONFIG_DIR		ISCSIVAR"nodes"
+#define SLP_CONFIG_DIR		ISCSIVAR"slp"
+#define ISNS_CONFIG_DIR		ISCSIVAR"isns"
+#define STATIC_CONFIG_DIR	ISCSIVAR"static"
+#define FW_CONFIG_DIR		ISCSIVAR"fw"
+#define ST_CONFIG_DIR		ISCSIVAR"send_targets"
 #define ST_CONFIG_NAME		"st_config"
 #define ISNS_CONFIG_NAME	"isns_config"
 
@@ -42,6 +44,7 @@
 #define TYPE_STR	2
 #define TYPE_UINT8	3
 #define TYPE_UINT16	4
+#define TYPE_UINT32	5
 #define MAX_KEYS	256   /* number of keys total(including CNX_MAX) */
 #define NAME_MAXVAL	128   /* the maximum length of key name */
 #define VALUE_MAXVAL	256   /* the maximum length of 223 bytes in the RFC. */
@@ -85,6 +88,7 @@ struct user_param {
 	struct list_head list;
 	char *name;
 	char *value;
+	int param;
 };
 
 typedef int (idbm_iface_op_fn)(void *data, node_rec_t *rec);
@@ -98,6 +102,9 @@ struct rec_op_data {
 	node_rec_t *match_rec;
 	idbm_iface_op_fn *fn;
 };
+extern int idbm_for_each_iface(int *found, void *data,
+			       idbm_iface_op_fn *fn,
+			       char *targetname, int tpgt, char *ip, int port);
 extern int idbm_for_each_portal(int *found, void *data,
 				idbm_portal_op_fn *fn, char *targetname);
 extern int idbm_for_each_node(int *found, void *data,
@@ -168,6 +175,7 @@ enum {
 	IDBM_PRINT_TYPE_NODE,
 	IDBM_PRINT_TYPE_IFACE,
 	IDBM_PRINT_TYPE_HOST_CHAP,
+	IDBM_PRINT_TYPE_FLASHNODE
 };
 
 extern void idbm_print(int type, void *rec, int show, FILE *f);
@@ -181,5 +189,9 @@ extern struct node_rec *
 idbm_create_rec_from_boot_context(struct boot_context *context);
 
 extern int idbm_print_host_chap_info(struct iscsi_chap_rec *chap);
+extern void idbm_recinfo_host_chap(struct iscsi_chap_rec *r, recinfo_t *ri);
+
+extern int idbm_print_flashnode_info(struct flashnode_rec *target);
+extern void idbm_recinfo_flashnode(struct flashnode_rec *r, recinfo_t *ri);
 
 #endif /* IDBM_H */

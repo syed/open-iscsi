@@ -74,11 +74,6 @@ the cache sync command will fail.
 - iscsiadm's -P 3 option will not print out scsi devices.
 - iscsid will not automatically online devices.
 
-You need to enable "Cryptographic API" under "Cryptographic options" in the
-kernel config. And you must enable "CRC32c CRC algorithm" even if
-you do not use header or data digests. They are the kernel options,
-CONFIG_CRYPTO and CONFIG_CRYPTO_CRC32C, respectively.
-
 By default the kernel's iSCSI modules will be used. Running:
 
 	make
@@ -159,15 +154,19 @@ Usage: iscsid [OPTION]
 5. Open-iSCSI Configuration Utility
 ===================================
 
-Open-iSCSI persistent configuration is implemented as a DBM database
-available on all Linux installations.
+Open-iSCSI persistent configuration is stored in a number of
+directories under a configuration root directory, using a flat-file
+format. This configuration root directory is /var/lib/iscsi by default.
 
-The database contains two tables:
+Configuration is contained in directories for:
 
-- Discovery table (/etc/iscsi/send_targets);
-- Node table (/etc/iscsi/nodes).
-
-The regular place for iSCSI database files: /etc/iscsi/nodes
+- nodes
+- slp
+- isns
+- static
+- fw
+- send_targets
+- ifaces
 
 The iscsiadm utility is a command-line tool to manage (update, delete,
 insert, query) the persistent database.
@@ -388,7 +387,7 @@ Usage: iscsiadm [OPTION]
 			  See below for examples.
   -m iface --interface=iscsi_ifacename -C ping --ip=[ipaddr] --packetsize=[size]
 				--count=[count] --interval=[interval]
-  -m host --host=hostno|MAC --print=level -C chap --op=[op] --value=[chap_tbl_idx]
+  -m host --host=hostno|MAC --print=level -C chap --op=[SHOW]
 			  Display information for a specific host. The host
 			  can be passed in by host number or by MAC address.
 			  If a host is not passed in then info
@@ -401,6 +400,37 @@ Usage: iscsiadm [OPTION]
 			  is connected to.
 			  3 = Print iscsi params used.
 			  4 = Print SCSI info like LUNs, device state.
+  -m host --host=hostno|MAC -C chap --op=[DELETE] --index=[chap_tbl_idx]
+			   Delete chap entry at the given index from chap table.
+  -m host --host=hostno|MAC -C chap --op=[NEW | UPDATE] --index=[chap_tbl_idx] \
+				--name=[name] --value=[value]
+			  Add new or update existing chap entry at the given
+			  index with given username and password pair. If index
+			  is not passed then entry is added at the first free
+			  index in chap table.
+  -m host --host=hostno|MAC -C flashnode
+			  Display list of all the targets in adapter's
+			  flash (flash node), for the specified host,
+			  with ip, port, tpgt and iqn.
+  -m host --host=hostno|MAC -C flashnode --op=[NEW] --portal_type=[ipv4|ipv6]
+			  Create new flash node entry for the given host of the
+			  specified portal_type. This returns the index of the
+			  newly created entry on success.
+  -m host --host=hostno|MAC -C flashnode --index=[flashnode index] \
+				--op=[UPDATE] --name=[name] --value=[value]
+			  Update the params of the speficied flash node.
+			  The [name] and [value] pairs must be provided for the
+			  params that need to be updated. Multiple params can
+			  be updated using a single command.
+  -m host --host=hostno|MAC -C flashnode --index=[flashnode index] \
+				--op=[SHOW | DELETE | LOGIN | LOGOUT]
+			  op=DELETE|LOGIN|LOGOUT will perform deletion/login/
+			  logout operation on the specified flash node.
+
+			  op=SHOW will list all params with the values for the
+			  specified flash node. This is the default operation.
+
+			  See the iscsiadm example section for more info.
   -d, --debug debuglevel  print debugging information
   -V, --version           display version and exit
   -h, --help              display this help and exit
@@ -444,7 +474,7 @@ a scsi_host per HBA port).
 To manage both types of initiator stacks, iscsiadm uses the interface (iface)
 structure. For each HBA port or for software iscsi for each network
 device (ethX) or NIC, that you wish to bind sessions to you must create
-a iface config /etc/iscsi/ifaces.
+a iface config /var/lib/iscsi/ifaces.
 
 Prep:
 
@@ -478,29 +508,29 @@ Running:
 iface0 qla4xxx,00:c0:dd:08:63:e8,20.15.0.7,default,iqn.2005-06.com.redhat:madmax
 iface1 qla4xxx,00:c0:dd:08:63:ea,20.15.0.9,default,iqn.2005-06.com.redhat:madmax
 
-Will report iface configurations that are setup in /etc/iscsi/ifaces.
+Will report iface configurations that are setup in /var/lib/iscsi/ifaces.
 The format is:
 
 iface_name transport_name,hwaddress,ipaddress,net_ifacename,initiatorname
 
 For software iscsi, you can create the iface configs by hand, but it is
 reccomended that you use iscsiadm's iface mode. There is a iface.example in
-/etc/iscsi/ifaces which can be used as a template for the daring.
+/var/lib/iscsi/ifaces which can be used as a template for the daring.
 
 For each network object you wish to bind a session to you must create
-a seperate iface config in /etc/iscsi/ifaces and each iface config file
+a seperate iface config in /var/lib/iscsi/ifaces and each iface config file
 must have a unique name which is less than or equal to 64 characters.
 
 Example:
 
 If you have NIC1 with MAC address 00:0F:1F:92:6B:BF and NIC2 with
 MAC address 00:C0:DD:08:63:E7 and you wanted to do software iscsi over
-TCP/IP. Then in /etc/iscsi/ifaces/iface0 you would enter:
+TCP/IP. Then in /var/lib/iscsi/ifaces/iface0 you would enter:
 
 iface.transport_name = tcp
 iface.hwaddress = 00:0F:1F:92:6B:BF
 
-and in /etc/iscsi/ifaces/iface1 you would enter:
+and in /var/lib/iscsi/ifaces/iface1 you would enter:
 
 iface.transport_name = tcp
 iface.hwaddress = 00:C0:DD:08:63:E7
@@ -550,7 +580,7 @@ cxgb3i.00:07:43:05:97:07 cxgb3i,00:07:43:05:97:07,<empty>,<empty>,<empty>
 qla4xxx.00:0e:1e:04:8b:2e qla4xxx,00:0e:1e:04:8b:2e,<empty>,<empty>,<empty>
 
 
-Will report iface configurations that are setup in /etc/iscsi/ifaces.
+Will report iface configurations that are setup in /var/lib/iscsi/ifaces.
 The format is:
 
 iface_name transport_name,hwaddress,ipaddress,net_ifacename,initiatorname
@@ -636,7 +666,7 @@ need a seperate network connection to the target for discovery purposes.
 *This will be fixed in the next version of open-iscsi*
 
 For compatibility reasons, when you run iscsiadm to do discovery, it
-will check for interfaces in /etc/iscsi/iscsi/ifaces that are using
+will check for interfaces in /var/lib/iscsi/ifaces that are using
 tcp for the iface.transport and it will bind the portals that are discovered
 so that they will be logged in through those ifaces. This behavior can also
 be overriden by passing in the interfaces you want to use. For the case
@@ -654,7 +684,7 @@ we do not bind a session to a iface, then you can use the special iface
 
 iscsiadm -m discoverydb -t st -p ip:port -I default --discover -P 1
 
-And if you did not define any interfaces in /etc/iscsi/ifaces and do
+And if you did not define any interfaces in /var/lib/iscsi/ifaces and do
 not pass anything into iscsiadm, running iscsiadm will do the default
 behavior, where we allow the network subsystem to decide which
 device to use.
@@ -696,7 +726,7 @@ To now log into targets it is the same as with sofware iscsi. See section
 
 	    ./iscsiadm -m discoverydb -t st -p 192.168.1.1:3260 --discover
 
-	This will search /etc/iscsi/send_targets for a record with the
+	This will search /var/lib/iscsi/send_targets for a record with the
 	ID [portal = 192.168.1.1:3260 and type = sendtargets. If found it
 	will perform discovery using the settings stored in the record.
 	If a record does not exist, it will be created using the iscsid.conf
@@ -705,7 +735,7 @@ To now log into targets it is the same as with sofware iscsi. See section
 	The argument to -p may also be a hostname instead of an address.
 	    ./iscsiadm -m discoverydb -t st -p smoehost --discover
 
-	For the ifaces, iscsiadm will first search /etc/iscsi/ifaces for
+	For the ifaces, iscsiadm will first search /var/lib/iscsi/ifaces for
 	interfaces using software iscsi. If any are found then nodes found
 	during discovery will be setup so that they can logged in through
 	those interfaces. To specify a specific iface, pass the
@@ -761,7 +791,7 @@ To now log into targets it is the same as with sofware iscsi. See section
 	This command will perform discovery, but not manipulate the node DB.
 
   - SendTargets iSCSI Discovery with a specific interface. If you
-	wish to only use a subset of the interfaces in /etc/iscsi/ifaces
+	wish to only use a subset of the interfaces in /var/lib/iscsi/ifaces
 	then you can pass them in during discovery:
 
 	     ./iscsiadm -m discoverydb -t sendtargets -p 192.168.1.1:3260 \
@@ -955,6 +985,96 @@ To now log into targets it is the same as with sofware iscsi. See section
 
 	    ./iscsiadm -m session -P 1
 
+
+    Host mode with flashnode submode:
+
+    - Display list of flash nodes for a host
+
+	    ./iscsiadm -m host -H 6 -C flashnode
+
+	This will print list of all the flash node entries for the given host 6
+	along with their ip, port, tpgt and iqn values.
+
+    - Display all parameters of a flash node entry for a host
+
+	    ./iscsiadm -m host -H 6 -C flashnode -x 0
+
+	This will list all the parameter name,value pairs for flash node entry at
+	index 0 of host 6.
+
+    - Add a new flash node entry for a host
+
+	    ./iscsiadm -m host -H 6 -C flashnode -o new -A ipv4
+	or
+	    ./iscsiadm -m host -H 6 -C flashnode -o new -A ipv6
+
+	This will add new flash node entry for the given host 6 with portal
+	type of either ipv4 or ipv6. The new operation returns the index of
+	the newly created flash node entry.
+
+    - Update a flashnode entry
+	    ./iscsiadm -m host -H 6 -C flashnode -x 1 -o update \
+		-n flashnode.conn[0].ipaddress -v 192.168.1.12 \
+		-n flashnode.session.targetname \
+		-v iqn.2002-03.com.compellent:5000d310004b0716
+
+	This will update the values of ipaddress and targetname params of
+	flash node entry at index 1 of host 6.
+
+    - Login to a flash node entry
+	    ./iscsiadm -m host -H 6 -C flashnode -x 1 -o login
+
+    - Logout from a flash node entry
+	    ./iscsiadm -m host -H 6 -C flashnode -x 1 -o logout
+	or
+	    ./iscsiadm -m session -r $sid -u
+
+	Logout can be performed either using the flash node index or using the
+	corresponding session index.
+
+    - Delete a flash node entry
+	    ./iscsiadm -m host -H 6 -C flashnode -x 1 -o delete
+
+    Host mode with chap submode:
+
+    - Display list of chap entries for a host
+
+	    ./iscsiadm -m host -H 6 -C chap -o show
+
+	This will list all the chap entries for the given host.
+
+    - Delete a chap entry for a host
+
+	    ./iscsiadm -m host -H 6 -C chap -o delete -x 5
+
+	This will delete any chap entry present at given index 5.
+
+    - Add/Update a local chap entry for a host
+
+	    ./iscsiadm -m host -H 6 -C chap -o update -x 4 -n username \
+			-v value -n password -v value
+
+	This will update the local chap entry present at index 4. If index 4
+	is free then entry of type local chap will be created at that index
+	with given username and password values.
+
+    - Add/Update a bidi chap entry for a host
+
+	    ./iscsiadm -m host -H 6 -C chap -o update -x 5 -n username_in \
+			-v value -n password_in -v value
+
+	This will update the bidi chap entry present at index 5. If index 5
+	is free then entry of type bidi chap will be created at that index
+	with given username_in and password_in values.
+
+    Host mode with stats submode:
+
+    - Display host statistics:
+	    ./iscsiadm -m host -H 6 -C stats
+
+	This will print the aggregate statistics on the host adapter port.
+	This includes MAC, TCP/IP, ECC & iSCSI statistics.
+
 6. Configuration
 ================
 
@@ -992,7 +1112,7 @@ Red Hat or Fedora:
 -----------------
 To start open-iscsi in Red Hat/Fedora you can do:
 
-	service open-iscsi start
+	service iscsi start
 
 To get open-iscsi to automatically start at run time you may have to
 run:
@@ -1072,8 +1192,8 @@ where targetname is the name of the target and ip_address:port is the address
 and port of the portal. tpgt, is the portal group tag of
 the portal, and is not used in iscsiadm commands except for static
 record creation. And iface name is the name of the iscsi interface
-defined in /etc/iscsi/ifaces. If no interface was defined in
-/etc/iscsi/ifaces or passed in, the default behavior is used.
+defined in /var/lib/iscsi/ifaces. If no interface was defined in
+/var/lib/iscsi/ifaces or passed in, the default behavior is used.
 Default here is iscsi_tcp/tcp to be used over which ever NIC the
 network layer decides is best.
 
@@ -1188,7 +1308,7 @@ If set, iscsid will perform discovery to the address every
 discovery.isns.discoveryd_poll_inval or
 discovery.sendtargets.discoveryd_poll_inval seconds,
 and it will log into any portals found from the discovery source using
-the ifaces in /etc/iscsi/ifaces.
+the ifaces in /var/lib/iscsi/ifaces.
 
 Note that for iSNS the poll_interval does not have to be set. If not set,
 iscsid will only perform rediscovery when it gets a SCN from the server.
@@ -1200,6 +1320,8 @@ iscsid will only perform rediscovery when it gets a SCN from the server.
 #   linux-isns (SLES's iSNS server) where it sometimes does not send SCN
 #   events in the proper format, so they may not get handled.
 
+To set the startup value, so that nodes are not logged into automatically
+use the value "manual".
 
 Example:
 --------
